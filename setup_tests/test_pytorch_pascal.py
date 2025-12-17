@@ -1,5 +1,4 @@
 # David Treadwell
-# dtread4@live.com
 #
 # Use this script to check that your PASCAL VOC download was correct
 

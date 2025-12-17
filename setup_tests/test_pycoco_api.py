@@ -1,7 +1,6 @@
 # David Treadwell
-# dtread4@live.com
 #
-# Use this script to check that your PASCAL VOC download was correct
+# Use this script to check that your PyCOCO download was correct
 
 from pycocotools.coco import COCO
 import matplotlib.pyplot as plt
