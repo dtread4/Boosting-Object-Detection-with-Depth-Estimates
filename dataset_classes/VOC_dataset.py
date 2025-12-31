@@ -1,12 +1,15 @@
 # David Treadwell
 
 import os
+import json
 import xml.etree.ElementTree as ET
 
 from PIL import Image
 
 import torch
 from torch.utils.data import Dataset, ConcatDataset
+
+from pycocotools.coco import COCO
 
 
 VOC_CLASSES = [
@@ -181,3 +184,52 @@ def load_voc_ids(root, year, split):
     )
     with open(split_file) as f:
         return [line.strip() for line in f]
+    
+
+def voc_to_coco(dataset):
+    """Converts the VOC dataset to COCO style for evaluation
+
+    Args:
+        dataset: The dataset to convert to COCO style
+
+    Returns:
+        The coco-style ground truth for the VOC dataset
+    """
+    coco_gt = COCO()
+    coco_gt.dataset = {
+        "info": {"description": "VOC dataset in COCO format"},
+        "images": [],
+        "annotations": [],
+        "categories": [
+            {"id": i + 1, "name": cls}
+            for i, cls in enumerate(VOC_CLASSES)
+        ]
+    }
+
+    ann_id = 1
+    for img_id in range(len(dataset)):
+        _, target = dataset[img_id]
+
+        coco_gt.dataset["images"].append({
+            "id": img_id
+        })
+
+        boxes = target["boxes"]
+        labels = target["labels"]
+
+        for box, label in zip(boxes, labels):
+            x1, y1, x2, y2 = box.tolist()
+            w, h = x2 - x1, y2 - y1
+
+            coco_gt.dataset["annotations"].append({
+                "id": ann_id,
+                "image_id": img_id,
+                "category_id": int(label),
+                "bbox": [x1, y1, w, h],
+                "area": w * h,
+                "iscrowd": 0
+            })
+            ann_id += 1
+
+    coco_gt.createIndex()
+    return coco_gt
