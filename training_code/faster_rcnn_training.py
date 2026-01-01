@@ -288,7 +288,12 @@ def evaluate_loss(model, loader, device):
     """
     # Get predictions from model
     coco_gt = voc_to_coco(loader.dataset)
-    predictions = run_inference(model, loader, device)    
+    predictions = run_inference(model, loader, device)
+
+    # Make sure any predictions were generated - if not, return None to designate this
+    if len(predictions) == 0:
+        print("WARNING: no valid predictions for this set")
+        return None    
 
     # Evaluate the results in the COCO format
     coco_detections = coco_gt.loadRes(predictions)
@@ -351,7 +356,7 @@ def coco_stats_to_dict(coco_eval):
     return results_dict
 
 
-def save_checkpoint(config, model, epoch, val_AP, optimizer=None, scheduler=None):
+def save_checkpoint(config, model, epoch, coco_eval, optimizer=None, scheduler=None):
     """
     Saves a model/optimizer/scheduler checkpoint
 
@@ -359,6 +364,7 @@ def save_checkpoint(config, model, epoch, val_AP, optimizer=None, scheduler=None
         config: The configurations used for training
         model: The model being trained
         epoch: The current training epoch
+        coco_eval: The validation results in COCO format
         optimizer: The optimizer used in training. Defaults to None.
         scheduler: The scheduler used in training. Defaults to None.
     """
@@ -386,14 +392,16 @@ def save_checkpoint(config, model, epoch, val_AP, optimizer=None, scheduler=None
 
     torch.save(checkpoint, output_model_path)
 
-    # Save AP results to JSON file
-    results_dict = coco_stats_to_dict(val_AP)
-    output_value_path = os.path.join(
-        config.OUTPUT.DIR,
-        f"val_results_epoch_{epoch + 1}.json"
-    )
-    with open(output_value_path, 'w') as json_file:
-        json.dump(results_dict, json_file, indent=4)
+    # Save AP results to JSON file if they were produced
+    # Silently does not save file if none were produced, but a warning message should have been printed earlier
+    if coco_eval is not None:
+        results_dict = coco_stats_to_dict(coco_eval)
+        output_value_path = os.path.join(
+            config.OUTPUT.DIR,
+            f"val_results_epoch_{epoch + 1}.json"
+        )
+        with open(output_value_path, 'w') as json_file:
+            json.dump(results_dict, json_file, indent=4)
 
 
 def save_train_val_plot(train_epochs, train_losses_per_batch, val_ap50, output_dir):
@@ -577,11 +585,20 @@ def train(config):
         # Calculate mean training loss and validation loss
         train_loss = train_loss / num_batches
         coco_eval = evaluate_loss(model, val_loader, device)
-        val_AP = {
-            "AP": coco_eval.stats[0],     # mAP@[0.5:0.95]
-            "AP50": coco_eval.stats[1],   
-            "AP75": coco_eval.stats[2]
-        }
+
+        # Print results for epoch
+        if coco_eval is None:
+            val_AP = {
+                "AP": 0.0,
+                "AP50": 0.0,
+                "AP75": 0.0
+            }
+        else:
+            val_AP = {
+                "AP": coco_eval.stats[0],     # mAP@[0.5:0.95]
+                "AP50": coco_eval.stats[1],   
+                "AP75": coco_eval.stats[2]
+            }
         val_ap50.append(val_AP['AP50'])
 
         # Print to output file
