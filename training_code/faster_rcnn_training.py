@@ -25,6 +25,9 @@ from dataset_classes.VOC_dataset import VOCDataset, voc_to_coco, VOC_CLASSES
 from dataset_classes.utility import get_transforms
 
 
+# TODO separate into multiple files (classes?) for cleanliness
+
+
 def set_reproducability_settings(config, verbose=True):
     """
     Sets backend random seeds and Torch determinism to ensure experiments are reproducible
@@ -181,7 +184,7 @@ def build_optimizer_scheduler(config, model):
     optimizer_name = config.SOLVER.OPTIMIZER.lower()
 
     if optimizer_name == "adamw":
-        optimizer = optim.Adamw(
+        optimizer = optim.AdamW(
             params,
             lr=config.SOLVER.BASE_LR,
             betas=tuple(config.SOLVER.BETAS),
@@ -285,10 +288,10 @@ def evaluate_loss(model, loader, device):
     """
     # Get predictions from model
     coco_gt = voc_to_coco(loader.dataset)
-    predictions = run_inference(model, loader, device)
-    coco_detections = coco_gt.loadRes(predictions)
+    predictions = run_inference(model, loader, device)    
 
     # Evaluate the results in the COCO format
+    coco_detections = coco_gt.loadRes(predictions)
     coco_eval = COCOeval(coco_gt, coco_detections, iouType="bbox")
     coco_eval.evaluate()
     coco_eval.accumulate()
@@ -368,6 +371,7 @@ def save_checkpoint(config, model, epoch, val_AP, optimizer=None, scheduler=None
     }
 
     # Set up optimizer/scheduler dictionary
+    # TODO make these actually save
     if optimizer is not None:
         checkpoint["optimizer_state"] = optimizer.state_dict()
     if scheduler is not None:
@@ -433,7 +437,7 @@ def save_train_val_plot(train_epochs, train_losses_per_batch, val_ap50, output_d
 
     # Set x-axis limits and integer ticks
     max_epoch = len(val_ap50)
-    ax1.set_xlim(0, max_epoch)
+    ax1.set_xlim(-0.5, max_epoch + 0.5)
     ax1.set_xticks(range(max_epoch + 1))
 
     # Finish design
@@ -471,7 +475,7 @@ def save_lr_scheduler_plot(lr_history, output_dir):
     plt.tight_layout()
 
     # Set the x-ticks
-    plt.xlim(0, max_epoch)
+    plt.xlim(-0.5, max_epoch + 0.5)
     plt.xticks(range(1, max_epoch + 1))
 
     output_path = os.path.join(output_dir, "learning_rate_schedule.png")
@@ -587,6 +591,7 @@ def train(config):
               AP: {val_AP['AP']} | AP50: {val_AP['AP50']} | AP75: {val_AP['AP75']}")
 
         # TODO update this to save only best/last epoch models (maybe remove temp ones from previous epochs when training completes?)
+        # TODO add training loss to saved checkpoint dict
         save_checkpoint(config, model, epoch, coco_eval)
 
     # Save the training and validation loss graph and the learning rate graph
