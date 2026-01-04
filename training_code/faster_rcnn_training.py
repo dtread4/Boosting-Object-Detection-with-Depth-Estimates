@@ -11,6 +11,7 @@ import torch
 import random
 import numpy as np
 import matplotlib.pyplot as plt
+import shutil
 
 from torch.utils.data import DataLoader
 from torchvision.models.detection import fasterrcnn_resnet50_fpn
@@ -356,7 +357,7 @@ def coco_stats_to_dict(coco_eval):
     return results_dict
 
 
-def save_checkpoint(config, model, epoch, coco_eval, optimizer=None, scheduler=None):
+def save_checkpoint(config, model, epoch, coco_eval, mean_train_loss, optimizer, scheduler):
     """
     Saves a model/optimizer/scheduler checkpoint
 
@@ -370,38 +371,48 @@ def save_checkpoint(config, model, epoch, coco_eval, optimizer=None, scheduler=N
     """
     os.makedirs(config.OUTPUT.DIR, exist_ok=True)
 
-    # Set up model dictionary
+    # Set up model state dictionary
     checkpoint = {
         "epoch": epoch,
-        "model_state": model.state_dict()
+        "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "scheduler_state": scheduler.state_dict()
     }
-
-    # Set up optimizer/scheduler dictionary
-    # TODO make these actually save
-    if optimizer is not None:
-        checkpoint["optimizer_state"] = optimizer.state_dict()
-    if scheduler is not None:
-        checkpoint['scheduler_state'] = scheduler.state_dict()
     
-    # Create output path and save
-    # TODO update this to only save best/last epoch models
+    # Create output path and save the model
     output_model_path = os.path.join(
         config.OUTPUT.DIR,
         f"model_epoch_{epoch + 1}.pth"
     )
-
     torch.save(checkpoint, output_model_path)
 
     # Save AP results to JSON file if they were produced
     # Silently does not save file if none were produced, but a warning message should have been printed earlier
     if coco_eval is not None:
         results_dict = coco_stats_to_dict(coco_eval)
+        results_dict['mean_train_loss'] = mean_train_loss
         output_value_path = os.path.join(
             config.OUTPUT.DIR,
             f"val_results_epoch_{epoch + 1}.json"
         )
         with open(output_value_path, 'w') as json_file:
             json.dump(results_dict, json_file, indent=4)
+
+
+def get_best_epoch_val(val_list):
+    """
+    Gets the best (maximum) validation result
+
+    Args:
+        val_list: List containing a per-epoch validation results
+
+    Returns:
+        The best validation result and the epoch it occurred at
+    """
+    best_epoch_index = int(np.argmax(val_list))
+    best_val = val_list[best_epoch_index]
+    best_epoch = best_epoch_index + 1
+    return best_val, best_epoch
 
 
 def save_train_val_plot(train_epochs, train_losses_per_batch, val_ap50, output_dir):
@@ -415,8 +426,7 @@ def save_train_val_plot(train_epochs, train_losses_per_batch, val_ap50, output_d
         output_dir: The output directory to save to
     """
     # Get the best validation AP50
-    best_epoch = int(np.argmax(val_ap50))
-    best_ap50 = val_ap50[best_epoch]
+    best_ap50, best_epoch = get_best_epoch_val(val_ap50)
 
     fig, ax1 = plt.subplots()
 
@@ -446,7 +456,7 @@ def save_train_val_plot(train_epochs, train_losses_per_batch, val_ap50, output_d
     # Set x-axis limits and integer ticks
     max_epoch = len(val_ap50)
     ax1.set_xlim(-0.5, max_epoch + 0.5)
-    ax1.set_xticks(range(max_epoch + 1))
+    ax1.set_xticks(range(1, max_epoch + 1))
 
     # Finish design
     fig.suptitle(
@@ -513,6 +523,64 @@ def get_current_learning_rate(optimizer):
         
     if epoch_lr is None:
         raise RuntimeError("No parameter group with weight decay > 0 found! Exiting.")
+    
+
+def keep_only_best_and_last_saved_models(config, val_ap50):
+    """
+    Removes all model state dictionary files except the best epoch's and the last epoch's
+
+    Args:
+        config: The configurations used for training
+        val_ap50: The validation AP50 for each epoch
+    """
+    # Get what epochs to keep
+    best_ap50, best_epoch = get_best_epoch_val(val_ap50)
+    last_epoch = len(val_ap50)
+
+    # Remove unneeded models
+    for filename in os.listdir(config.OUTPUT.DIR):
+        if filename.startswith("model_epoch_") and filename.endswith(".pth"):
+            epoch = int(filename.split("_")[-1].split(".")[0])
+            if epoch not in {best_epoch, last_epoch}:
+                os.remove(os.path.join(config.OUTPUT.DIR, filename))
+
+    # Print results
+    print(f"Kept model state dictionaries for epochs {best_ap50} (best validation epoch) and {last_epoch} (last epoch)")
+
+
+def organize_val_results_files(config, val_ap50):
+    """
+    Makes a subdirectory for validation results, then copies the best/last epochs back to the main output directory
+
+    Args:
+        config: The configurations used for training
+        val_ap50: The validation AP50 for each epoch
+    """
+    # Get what epochs to keep in main output directory
+    best_ap50, best_epoch = get_best_epoch_val(val_ap50)
+    last_epoch = len(val_ap50)
+
+    # Create a subdirectory to contain all of the validation results files
+    val_results_dir = os.path.join(config.OUTPUT.DIR, "val_results")
+    os.makedirs(val_results_dir, exist_ok=True)
+
+    # Move all results files to the directory
+    for filename in os.listdir(config.OUTPUT.DIR):
+        if filename.startswith("val_results_epoch_") and filename.endswith(".json"):
+            shutil.move(
+                os.path.join(config.OUTPUT.DIR, filename),
+                os.path.join(val_results_dir, filename)
+            )
+
+    # Copy the best and last epoch's results files back to the original directory
+    shutil.copy( 
+        os.path.join(val_results_dir, f"val_results_epoch_{best_epoch}.json"),
+        os.path.join(config.OUTPUT.DIR, f"val_results_best_epoch_{best_epoch}.json")
+        )
+    shutil.copy(
+        os.path.join(val_results_dir, f"val_results_epoch_{last_epoch}.json"),
+        os.path.join(config.OUTPUT.DIR, f"val_results_last_epoch_{last_epoch}.json")
+        )
 
 
 def train(config):
@@ -583,7 +651,7 @@ def train(config):
         scheduler.step()
 
         # Calculate mean training loss and validation loss
-        train_loss = train_loss / num_batches
+        mean_train_loss = train_loss / num_batches
         coco_eval = evaluate_loss(model, val_loader, device)
 
         # Print results for epoch
@@ -603,18 +671,21 @@ def train(config):
 
         # Print to output file
         # TODO send this to an output file, flush as it comes in
-        print(f"Epoch {epoch + 1}: train loss: {train_loss:.2f}")
+        print(f"Epoch {epoch + 1}: train loss: {mean_train_loss:.2f}")
         print(f"Validation stats:\
               AP: {val_AP['AP']} | AP50: {val_AP['AP50']} | AP75: {val_AP['AP75']}")
-
-        # TODO update this to save only best/last epoch models (maybe remove temp ones from previous epochs when training completes?)
-        # TODO add training loss to saved checkpoint dict
-        save_checkpoint(config, model, epoch, coco_eval)
+        
+        # Save epoch's model and validation results
+        save_checkpoint(config, model, epoch, coco_eval, mean_train_loss, optimizer, scheduler)
 
     # Save the training and validation loss graph and the learning rate graph
     save_train_val_plot(train_epochs, train_losses_per_batch, val_ap50, config.OUTPUT.DIR)
     save_lr_scheduler_plot(lr_history, config.OUTPUT.DIR)
-            
+
+    # Remove all but best epoch and last epoch
+    keep_only_best_and_last_saved_models(config, val_ap50)
+    organize_val_results_files(config, val_ap50)
+
 
 def main(config):
     # Set reproducibility settings first
@@ -633,6 +704,5 @@ if __name__ == "__main__":
 
     # Read YAML path
     config = OmegaConf.load(args.config_path)
-    OmegaConf.set_readonly(config, False)  # Makes the configurations editable
 
     main(config)
