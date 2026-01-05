@@ -21,7 +21,7 @@ if __name__ == "__main__":
 
     # Load model from Hugging Face Hub
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = DepthAnything3.from_pretrained("depth-anything/da3-base")
+    model = DepthAnything3.from_pretrained("depth-anything/da3-small")
     model = model.to(device=device)
 
     # Run inference on images
@@ -31,7 +31,7 @@ if __name__ == "__main__":
     )
 
     # Access results
-    print(prediction.depth.shape)        # Depth maps: [N, H, W] float32
+    print(prediction.depth.shape)        # Depth maps: [N (image index), H, W] float32
 
     # Display depth map
     fig, axes = plt.subplots(2, 1)
