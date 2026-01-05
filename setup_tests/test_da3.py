@@ -11,8 +11,6 @@ from depth_anything_3.api import DepthAnything3
 from depth_anything_3.utils.visualize import visualize_depth
 
 import matplotlib.pyplot as plt
-from PIL import Image
-import numpy as np
 
 
 if __name__ == "__main__":
