@@ -6,7 +6,6 @@ import argparse
 import torchvision
 import matplotlib.pyplot as plt
 import numpy as np
-import sys
 
     # --- Configuration ---
 if __name__ == "__main__":

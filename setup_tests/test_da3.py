@@ -11,7 +11,6 @@ import argparse
 
 from PIL import Image
 import cv2
-import numpy as np
 
 from depth_anything_3.api import DepthAnything3
 from depth_anything_3.utils.visualize import visualize_depth
