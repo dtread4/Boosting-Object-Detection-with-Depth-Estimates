@@ -25,6 +25,8 @@ from pycocotools.cocoeval import COCOeval
 from dataset_classes.VOC_dataset import VOCDataset, voc_to_coco, VOC_CLASSES
 from dataset_classes.utility import get_transforms
 
+from dataset_classes.depth_model import DepthModel
+
 
 # TODO separate into multiple files (classes?) for cleanliness
 
@@ -83,13 +85,14 @@ def collate_fn(batch):
     return tuple(zip(*batch))
 
 
-def build_dataloader(config, split):
+def build_dataloader(config, split, depth_model=None):
     """
     Builds a dataloader for a single train/val/test split
 
     Args:
         config: The configurations to build the dataset/dataloader with
         split: Which split to build for
+        depth_model: The depth model being used to generate depth estimates. Defaults to None
 
     Returns:
         _description_
@@ -99,13 +102,16 @@ def build_dataloader(config, split):
         root=config.DATASETS.ROOT,
         years=config.DATASETS[split].YEARS,
         split=split,
-        transforms=get_transforms(train=(split == "TRAIN"))
+        transforms=get_transforms(train=(split == "TRAIN")),
+        depth_model=depth_model
     )
     dataloader = DataLoader(
         dataset=dataset,
-        batch_size=config.SOLVER.BATCH_SIZE if split == "TRAIN" else 1,
+        #batch_size=config.SOLVER.BATCH_SIZE if split == "TRAIN" else 1,
+        batch_size=1,
         shuffle=(split == "train"),
-        num_workers=config.DATALOADER.NUM_WORKERS,
+        #num_workers=config.DATALOADER.NUM_WORKERS,
+        num_workers=1,
         collate_fn=collate_fn
     )
     return dataloader
@@ -593,9 +599,15 @@ def train(config):
     # Set the device
     device_type, device = set_device(config.UTILITY.DEVICE)
 
+    # Load the depth model (if any; will be None if not)
+    depth_model = DepthModel.initialize_depth_model(
+        model_name=config.DEPTH_INFO.DEPTH_MODEL,
+        device=device
+    )
+
     # Build dataloaders
-    train_loader = build_dataloader(config, "TRAIN")
-    val_loader = build_dataloader(config, "VAL")
+    train_loader = build_dataloader(config, "TRAIN", depth_model)
+    val_loader = build_dataloader(config, "VAL", depth_model)
 
     # Build optimizer and scheduler
     model = build_model(config).to(device)

@@ -7,10 +7,34 @@
 import torch
 import argparse
 
+import cv2
+import numpy as np
+
 from depth_anything_3.api import DepthAnything3
 from depth_anything_3.utils.visualize import visualize_depth
 
 import matplotlib.pyplot as plt
+
+def _normalize_depth_mask(depth_map):
+        """_summary_
+
+        Args:
+            depth_map: _description_
+
+        Returns:
+            _description_
+        """
+        min_val = np.min(depth_map)
+        max_val = np.max(depth_map)
+
+        # If no unique depths are computed, return an array of 0's
+        if min_val == max_val:
+            print("min equaled max)")
+            return np.zeros(depth_map.shape).astype(np.float32)
+        
+        # Convert to float and normalize
+        normalized_image = (depth_map - min_val) / (max_val - min_val)
+        return normalized_image
 
 
 if __name__ == "__main__":
@@ -24,25 +48,34 @@ if __name__ == "__main__":
     model = DepthAnything3.from_pretrained("depth-anything/da3-small")
     model = model.to(device=device)
 
-    # Run inference on images
-    images = [args.image_path]  # List of image paths, PIL Images, or numpy arrays
+    # Run inference on images (this is done here how it will be in the main program)
+    img = cv2.imread(args.image_path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    images = [img]  # List of image paths, PIL Images, or numpy arrays
     prediction = model.inference(
-        images
+        images,
+        process_res=max(img.shape[0], img.shape[1]),
+        process_res_method="upper_bound_resize"
     )
+    depth_map = cv2.resize(prediction.depth[0], (img.shape[1], img.shape[0]), interpolation=cv2.INTER_LINEAR)
+    depth_mask_n = _normalize_depth_mask(depth_map)
 
     # Access results
-    print(prediction.depth.shape)        # Depth maps: [N (image index), H, W] float32
+    print("Image shape:", img.shape)
+    print("Depth map shape:", depth_map.shape)        # Depth maps: [N (image index), H, W] float32
+    print(f"Min value in image: {np.min(img)} | Max value in image: {np.max(img)}")
+    print(f"Min value in depth map: {np.min(depth_map)} | Max value in depth map: {np.max(depth_map)}")
 
     # Display depth map
     fig, axes = plt.subplots(2, 1)
 
     # Display original image to left of depth map
-    axes[0].imshow(prediction.processed_images[0])
+    axes[0].imshow(img)
     axes[0].set_title("Original image")
     axes[0].axis('off')
 
     # Display the depth map
-    axes[1].imshow(visualize_depth(prediction.depth[0], cmap='Spectral'))
+    axes[1].imshow(visualize_depth(depth_map, cmap='Spectral'))
     axes[1].set_title("Estimated depth map")
     axes[1].axis('off')
 
