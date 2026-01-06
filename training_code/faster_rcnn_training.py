@@ -12,6 +12,7 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 import shutil
+from PIL import Image
 
 from torch.utils.data import DataLoader
 from torchvision.models.detection import fasterrcnn_resnet50_fpn
@@ -85,14 +86,13 @@ def collate_fn(batch):
     return tuple(zip(*batch))
 
 
-def build_dataloader(config, split, depth_model=None):
+def build_dataloader(config, split):
     """
     Builds a dataloader for a single train/val/test split
 
     Args:
         config: The configurations to build the dataset/dataloader with
         split: Which split to build for
-        depth_model: The depth model being used to generate depth estimates. Defaults to None
 
     Returns:
         _description_
@@ -102,16 +102,13 @@ def build_dataloader(config, split, depth_model=None):
         root=config.DATASETS.ROOT,
         years=config.DATASETS[split].YEARS,
         split=split,
-        transforms=get_transforms(train=(split == "TRAIN")),
-        depth_model=depth_model
+        transforms=get_transforms(train=(split.upper() == "TRAIN"))
     )
     dataloader = DataLoader(
         dataset=dataset,
-        #batch_size=config.SOLVER.BATCH_SIZE if split == "TRAIN" else 1,
-        batch_size=1,
-        shuffle=(split == "train"),
-        #num_workers=config.DATALOADER.NUM_WORKERS,
-        num_workers=1,
+        batch_size=config.SOLVER.BATCH_SIZE if split == "TRAIN" else 1,
+        shuffle=(split.upper() == "TRAIN"),
+        num_workers=config.DATALOADER.NUM_WORKERS,
         collate_fn=collate_fn
     )
     return dataloader
@@ -587,6 +584,30 @@ def organize_val_results_files(config, val_ap50):
         os.path.join(val_results_dir, f"val_results_epoch_{last_epoch}.json"),
         os.path.join(config.OUTPUT.DIR, f"val_results_last_epoch_{last_epoch}.json")
         )
+    
+
+def tensor_to_pil(tensor_images):
+    """
+    Converts a batch (list) of tensor images to PIL images
+
+    Args:
+        tensor_images: The batch of tensor format images (C, H, W)
+
+    Returns:
+        A list of PIL images
+    """
+    pil_images = []
+    for img in tensor_images:
+        # Convert (C, H, W) -> (H, W, C)
+        img_np = img.permute(1, 2, 0).numpy()
+        
+        # If float [0,1], convert to uint8 [0,255]
+        if img_np.dtype == np.float32 or img_np.dtype == np.float64:
+            img_np = (img_np * 255).clip(0, 255).astype(np.uint8)
+
+        pil_images.append(Image.fromarray(img_np))
+    
+    return pil_images
 
 
 def train(config):
@@ -606,8 +627,8 @@ def train(config):
     )
 
     # Build dataloaders
-    train_loader = build_dataloader(config, "TRAIN", depth_model)
-    val_loader = build_dataloader(config, "VAL", depth_model)
+    train_loader = build_dataloader(config, "TRAIN")
+    val_loader = build_dataloader(config, "VAL")
 
     # Build optimizer and scheduler
     model = build_model(config).to(device)
@@ -629,6 +650,13 @@ def train(config):
 
         # Loop over all batches each epoch
         for batch_idx, (images, targets) in enumerate(tqdm(train_loader, desc='Current training epoch\'s batches')):
+            # Calculate depth maps if using depth
+            if depth_model is not None:
+                pil_images = tensor_to_pil(images)
+                depth_masks = depth_model.calculate_depth_map(pil_images)
+                depth_masks_tensor = [torch.from_numpy(dm).unsqueeze(0) for dm in depth_masks]
+                images = [torch.cat([images[i], depth_masks_tensor[i]], dim=0) for i in range(len(images))]
+
             images = [img.to(device) for img in images]
             targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 

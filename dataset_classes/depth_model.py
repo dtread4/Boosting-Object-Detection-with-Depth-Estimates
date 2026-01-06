@@ -1,6 +1,7 @@
 # David Treadwell
 
 import numpy as np
+from PIL import Image
 
 from abc import ABC, abstractmethod
 
@@ -130,12 +131,12 @@ class DepthAnythingv3(_DepthModelBase):
         """
         return DepthAnything3.from_pretrained(f"depth-anything/{self.da3_model_name}").to(self.device)
     
-    def calculate_depth_map(self, input_image):
+    def calculate_depth_map(self, images):
         """
         Calculates the depth map for a single input image and return it in the form [h, w]
 
         Args:
-            input_image: The input image to calculate depth for
+            images: A list of input images (PIL format) for the model to run inference on
 
         Returns:
             A depth map in the form [h, w]
@@ -147,32 +148,19 @@ class DepthAnythingv3(_DepthModelBase):
         # the long side of the image.
         # https://github.com/ByteDance-Seed/Depth-Anything-3/blob/main/docs/API.md
 
-        cv2.imshow('org image', cv2.cvtColor(input_image, cv2.COLOR_RGB2BGR))
-        cv2.waitKey()
+        min_size = min(min(img.size) for img in images)
+        images_resized = [img.resize((min_size, min_size), Image.Resampling.BILINEAR) for img in images]
 
-        images = [input_image]
         prediction = self.model.inference(
-            images,
-            process_res=max(input_image.shape[0], input_image.shape[1]),
-            process_res_method="upper_bound_resize"
-        )
-        depth_map = prediction.depth[0]
-
-        print(depth_map)
-
-        cv2.imshow('depth map', depth_map)
-        cv2.waitKey()
-
-        # The output depth map is resized to the original image's resolution
-        depth_map_resized = cv2.resize(
-            depth_map, (input_image.shape[1], input_image.shape[0]), 
-            interpolation=cv2.INTER_LINEAR
+            images_resized,
+            process_res=min_size
         )
 
-        cv2.imshow('depth map resized', depth_map_resized)
-        cv2.waitKey()
-
-        normalized_depth_mask = self._normalize_depth_mask(np.array(depth_map_resized))
+        # The output depth map is resized to the original image's resolution and normalized to [0, 1]
+        depth_maps_resized_normalized = [
+            self._normalize_depth_mask(cv2.resize(prediction.depth[i], images[i].size, cv2.INTER_LINEAR)) 
+            for i in range(prediction.depth.shape[0])
+        ]
         
-        return normalized_depth_mask
+        return depth_maps_resized_normalized
 

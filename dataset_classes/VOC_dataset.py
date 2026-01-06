@@ -3,12 +3,10 @@
 import os
 import xml.etree.ElementTree as ET
 
-import cv2
+from PIL import Image
 
 import torch
 from torch.utils.data import Dataset, ConcatDataset
-
-import torchvision.transforms as T
 
 from pycocotools.coco import COCO
 
@@ -27,7 +25,7 @@ class VOCDataset(Dataset):
     """
     Dataset class for managing the combined VOC 2007/2012 datasets
     """
-    def __init__(self, root, years, split, transforms=None, depth_model=None):
+    def __init__(self, root, years, split, transforms=None):
         """
         Dataset constructor
 
@@ -36,14 +34,13 @@ class VOCDataset(Dataset):
             year: list of years, e.g., [2007], [2012], [2007, 2012]
             split: Which split of data (train/val/trainval/test) to manage
             transforms: Transforms to apply to data. Defaults to None.
-            depth_model: An already-initialized depth model (on the correct device)
         """
         self.datasets = []
 
         # Create datasets for each year specified
         for year in years:
             self.datasets.append(
-                VOCSingleYearDataset(root, year, split, transforms, depth_model)
+                VOCSingleYearDataset(root, year, split, transforms)
             )
 
         # Concatenate all years into a single dataset
@@ -78,7 +75,7 @@ class VOCSingleYearDataset(Dataset):
     """
     Dataset class for managing either the VOC 2007/2012 data and use in PyTorch Dataloader objects
     """
-    def __init__(self, root, year, split, transforms=None, depth_model=None):
+    def __init__(self, root, year, split, transforms=None):
         """
         Dataset constructor
 
@@ -87,14 +84,12 @@ class VOCSingleYearDataset(Dataset):
             year: Which year to manage data for
             split: Which split of data (train/val/trainval/test) to manage
             transforms: Transforms to apply to data. Defaults to None.
-            depth_model: An already-initialized depth model (on the correct device)
         """
         # Set class attributes
         self.root = root
         self.year = year
         self.split = split
         self.transforms = transforms
-        self.depth_model = depth_model
 
         # Set images that the dataset will manage
         self.image_ids = load_voc_ids(self.root, self.year, self.split)
@@ -128,33 +123,9 @@ class VOCSingleYearDataset(Dataset):
         img_path = os.path.join(
             self.base_path, "JPEGImages", f"{img_id}.jpg"
         )
-        print(img_path)
-
-        img = cv2.imread(img_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        # Calculate depth (if it is being used)
-        if self.depth_model is not None:
-            depth_map_tensor = torch.from_numpy(self.depth_model.calculate_depth_map(img)).unsqueeze(0)
-            print(f"Image shape: {img_tensor.shape}")
-            print(f"Depth shape: {depth_map_tensor.shape}")
-
-        # Convert the image to a tensor
-        img_tensor = T.Compose([T.ToTensor()])(img)
-
-        # Combine the image and the depth mask
-        if self.depth_model is not None:
-            img_tensor = torch.cat([img_tensor, depth_map_tensor], dim=0)
-        
-        # TODO remove
-        print(img_tensor.shape)
-        for c in range(img_tensor.shape[0]):
-            print(torch.min(img_tensor[c]), torch.max(img_tensor[c]))
-        print()
-
+        img = Image.open(img_path).convert("RGB")
         if self.transforms:
-            img_tensor = self.transforms(img_tensor)  # TODO ultimately will want to separate pre-depth and post-depth estimate transforms
-        # TODO test that transformations are happening correctly
+            img = self.transforms(img)  # TODO ultimately will want to separate pre-depth and post-depth estimate transforms
 
         # Load the annotations
         ann_path = os.path.join(
@@ -187,7 +158,7 @@ class VOCSingleYearDataset(Dataset):
             "iscrowd": torch.zeros((len(boxes),), dtype=torch.int64)
         }
 
-        return img_tensor, target
+        return img, target
 
 
 def load_voc_ids(root, year, split):
