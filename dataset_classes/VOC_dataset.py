@@ -83,6 +83,7 @@ class VOCSingleYearDataset(Dataset):
             root: The root directory containing 'VOCdevkit'
             year: Which year to manage data for
             split: Which split of data (train/val/trainval/test) to manage
+                    Note that split for 2012 is always trainval, and 2012 should only be used for training
             transforms: Transforms to apply to data. Defaults to None.
         """
         # Set class attributes
@@ -92,7 +93,8 @@ class VOCSingleYearDataset(Dataset):
         self.transforms = transforms
 
         # Set images that the dataset will manage
-        self.image_ids = load_voc_ids(self.root, self.year, self.split)
+        self.image_ids = load_voc_ids(self.root, self.year, 'trainval' if self.year == 2012 else self.split)
+        # self.image_ids = load_voc_ids(self.root, self.year, self.split)
 
         self.base_path = os.path.join(
             root, "VOCdevkit", f"VOC{year}"
