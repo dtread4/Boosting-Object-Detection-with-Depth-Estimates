@@ -10,6 +10,10 @@ import cv2
 from depth_anything_3.api import DepthAnything3
 
 
+import os
+from contextlib import redirect_stdout, redirect_stderr
+
+
 class DepthModel:
     """
     Factory class to initialize a depth model
@@ -69,20 +73,27 @@ class _DepthModelBase(ABC):
         self.model = self._load_model()
 
     @abstractmethod
-    def _load_model(self):
+    def _load_model(self, verbose=False):
         """
         Loads the model and places it on the object's device.
         Implementation may vary depending on the model
+
+        Args:
+            verbose: Whether to print statements when loading the model. Defaults to False.
+
+        Returns:
+            A model object
         """
         pass
 
     @abstractmethod
-    def calculate_depth_map(self, input_image):
+    def calculate_depth_map(self, input_image, verbose=False):
         """
         Calculates the depth map for a specified input image
 
         Args:
-            input_image: _description_
+            input_image: The image to calculate the depth map for
+            verbose: Whether to print statements when running inference on model. Defaults to False.
 
         Returns:
             A 2D numpy array [h, w] of the estimated depths
@@ -93,10 +104,10 @@ class _DepthModelBase(ABC):
         """_summary_
 
         Args:
-            depth_map: _description_
+            depth_map: The unnormalized depth map
 
         Returns:
-            _description_
+            The depth map normalized
         """
         min_val = np.min(depth_map)
         max_val = np.max(depth_map)
@@ -125,11 +136,20 @@ class DepthAnythingv3(_DepthModelBase):
         self.da3_model_name = da3_model_name
         super().__init__(device, model_path)
 
-    def _load_model(self):
+    def _load_model(self, verbose=False):
         """
         Loads the correct Depth Anything 3 model from Hugging Face and places it on the object's device.
+
+        Args:
+            verbose: Whether to print statements when loading the model. Defaults to False.
+
+        Returns:
+            A model object
         """
-        return DepthAnything3.from_pretrained(f"depth-anything/{self.da3_model_name}").to(self.device)
+        with open(os.devnull, "w") as fnull:
+            with redirect_stdout(fnull), redirect_stderr(fnull):
+                model = DepthAnything3.from_pretrained(f"depth-anything/{self.da3_model_name}").to(self.device)
+        return model
     
     def calculate_depth_map(self, images):
         """
@@ -151,10 +171,12 @@ class DepthAnythingv3(_DepthModelBase):
         min_size = min(min(img.size) for img in images)
         images_resized = [img.resize((min_size, min_size), Image.Resampling.BILINEAR) for img in images]
 
-        prediction = self.model.inference(
-            images_resized,
-            process_res=min_size
-        )
+        with open(os.devnull, "w") as fnull:
+            with redirect_stdout(fnull), redirect_stderr(fnull):
+                prediction = self.model.inference(
+                    images_resized,
+                    process_res=min_size
+                )
 
         # The output depth map is resized to the original image's resolution and normalized to [0, 1]
         depth_maps_resized_normalized = [
