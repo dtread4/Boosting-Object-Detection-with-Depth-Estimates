@@ -1,7 +1,6 @@
 # David Treadwell
 
 import argparse
-import yaml
 import os
 from tqdm import tqdm
 from omegaconf import OmegaConf
@@ -15,7 +14,10 @@ import shutil
 from PIL import Image
 
 from torch.utils.data import DataLoader
-from torchvision.models.detection import fasterrcnn_resnet50_fpn
+
+from torchvision.models.detection import FasterRCNN, fasterrcnn_resnet50_fpn
+from torchvision.models.detection.backbone_utils import BackboneWithFPN
+from torchvision.models import resnet50
 
 import torch.optim as optim
 
@@ -27,7 +29,6 @@ from dataset_classes.VOC_dataset import VOCDataset, voc_to_coco, VOC_CLASSES
 from dataset_classes.utility import get_transforms
 
 from dataset_classes.depth_model import DepthModel
-
 
 # TODO separate into multiple files (classes?) for cleanliness
 
@@ -114,23 +115,65 @@ def build_dataloader(config, split):
     return dataloader
 
 
-def build_model(config):
+def build_faster_rcnn(config, add_depth_channel):
     """
     Builds a model from either a pre-trained model's weights or from default
 
     Args:
         config: configurations to use 
+        add_depth_channel: Whether to add a depth channel or not. Defaults to False (no depth channel, 3-channel inputs)
 
     Returns:
         A Faster R-CNN model
     """
-    model = fasterrcnn_resnet50_fpn(
-        weights="DEFAULT" if config.MODEL.PRETRAINED else None,
-        num_classes=config.MODEL.NUM_CLASSES,
-        min_size=config.MODEL.MIN_SIZE,
-        max_size=config.MODEL.MAX_SIZE
-    )
-    return model
+    model_weights = "DEFAULT" if config.MODEL.PRETRAINED else None
+
+    if add_depth_channel:
+        # Adjust the input channels from 3 to 4
+        resnet_backbone = resnet50(weights=model_weights)
+        print(f"ResNet50 backbone's first convolution before depth addition: {resnet_backbone.conv1}")
+        resnet_backbone.conv1 = torch.nn.Conv2d(
+            in_channels=4,  # 4 is RGB (3) + Depth (1) = 4 channels, RGB-D
+            out_channels=resnet_backbone.conv1.out_channels,
+            kernel_size=resnet_backbone.conv1.kernel_size,
+            stride=resnet_backbone.conv1.stride,
+            padding=resnet_backbone.conv1.padding,
+            bias=resnet_backbone.conv1.bias is not None,
+        )
+        print(f"ResNet50 backbone's first convolution after depth addition: {resnet_backbone.conv1}")
+
+        # Create the FPN backbone with the updated ResNet50 model
+        fpn_backbone = BackboneWithFPN(
+            resnet_backbone,
+            return_layers={"layer1": "0", "layer2": "1", "layer3": "2", "layer4": "3"},
+            in_channels_list=[256, 512, 1024, 2048],
+            out_channels=256
+        )
+
+        print("Updated ResNet50 FPN backbone to include depth channel\n")
+
+        faster_rcnn_model = FasterRCNN(
+            weights=model_weights,
+            backbone=fpn_backbone,
+            num_classes=config.MODEL.NUM_CLASSES,
+            min_size=config.MODEL.MIN_SIZE,
+            max_size=config.MODEL.MAX_SIZE,
+            image_mean=[0.485, 0.456, 0.406, 0.5],  # TODO calculate on training set and update
+            image_std=[0.229, 0.224, 0.225, 0.25],  # TODO calculate on training set and update
+        )
+
+        return faster_rcnn_model
+    
+    else:
+        print("Using default Faster R-CNN backbone with RGB inputs\n")
+
+        faster_rcnn_model = fasterrcnn_resnet50_fpn(
+            weights=model_weights,
+            num_classes=config.MODEL.NUM_CLASSES,
+            min_size=config.MODEL.MIN_SIZE,
+            max_size=config.MODEL.MAX_SIZE
+        )
+    return faster_rcnn_model
 
 
 def get_parameter_groups(config, model):
@@ -234,7 +277,7 @@ def build_optimizer_scheduler(config, model):
     return optimizer, scheduler
 
 
-def run_inference(model, dataloader, device):
+def run_inference(model, dataloader, device, depth_model):
     """
     Gets model outputs for a dataset (should be val/test dataset)
 
@@ -242,6 +285,7 @@ def run_inference(model, dataloader, device):
         model: The model to evaluate with
         loader: The dataloader managing the dataset to evaluate with
         device: The device being used for evaluation
+        device: The depth model to estimate depth maps with (if one is being used, else None)
 
     Returns:
         The set of predictions and confidence scores for each image/predicted object
@@ -255,6 +299,13 @@ def run_inference(model, dataloader, device):
     # Evaluate each image
     with torch.no_grad():
         for images, _ in tqdm(dataloader, desc='Current epoch\'s inference batches'):
+            # Calculate depth maps if using depth
+            if depth_model is not None:
+                pil_images = tensor_to_pil(images)
+                depth_masks = depth_model.calculate_depth_map(pil_images)
+                depth_masks_tensor = [torch.from_numpy(dm).unsqueeze(0) for dm in depth_masks]
+                images = [torch.cat([images[i], depth_masks_tensor[i]], dim=0) for i in range(len(images))]
+
             images = [img.to(device) for img in images]
             outputs = model(images)
 
@@ -278,7 +329,7 @@ def run_inference(model, dataloader, device):
     return predictions
 
 
-def evaluate_loss(model, loader, device):
+def evaluate_loss(model, loader, device, depth_model):
     """
     Evaluates a model's mAP on a dataset (should be the val/test set)
 
@@ -286,13 +337,14 @@ def evaluate_loss(model, loader, device):
         model: The model to evaluate with
         loader: The dataloader managing the dataset to evaluate with
         device: The device being used for evaluation
+        device: The depth model to estimate depth maps with (if one is being used, else None)
 
     Returns:
         the coco evaluation results
     """
     # Get predictions from model
     coco_gt = voc_to_coco(loader.dataset)
-    predictions = run_inference(model, loader, device)
+    predictions = run_inference(model, loader, device, depth_model)
 
     # Make sure any predictions were generated - if not, return None to designate this
     if len(predictions) == 0:
@@ -455,12 +507,12 @@ def save_train_val_plot(train_epochs, train_losses_per_batch, val_ap50, output_d
         label='Val AP50'
     )
     ax2.set_ylabel("Val AP50", color='orange')
+    ax2.set_ylim(-0.5, 1.5)  # Enforces a constant range
 
     # Set x-axis limits and integer ticks
     max_epoch = len(val_ap50)
     ax1.set_xlim(-0.5, max_epoch + 0.5)
     ax1.set_xticks(range(1, max_epoch + 1))
-
     # Finish design
     fig.suptitle(
         f"Train/Validation loss | best val AP50 {best_ap50:.4f} from epoch {best_epoch}"
@@ -627,12 +679,13 @@ def train(config):
     )
 
     # Build dataloaders
-    train_loader = build_dataloader(config, "TRAIN")
+    train_loader = build_dataloader(config, "TRAIN")  # TODO these should be specified, either TRAIN/VAL or TRAINVAL/TEST
     val_loader = build_dataloader(config, "VAL")
 
     # Build optimizer and scheduler
-    model = build_model(config).to(device)
-    optimizer, scheduler = build_optimizer_scheduler(config, model)
+    use_depth = config.DEPTH_INFO.DEPTH_MODEL is not None
+    detection_model = build_faster_rcnn(config, add_depth_channel=use_depth).to(device)
+    optimizer, scheduler = build_optimizer_scheduler(config, detection_model)
 
     # Create a scaler
     scaler = GradScaler(enabled=config.SOLVER.AMP)
@@ -644,7 +697,7 @@ def train(config):
     lr_history = []  # Learning rate used for each training epoch
 
     for epoch in tqdm(range(config.SOLVER.MAX_EPOCHS), desc='Training epochs'):
-        model.train()
+        detection_model.train()
         train_loss = 0
         num_batches = 0
 
@@ -652,6 +705,8 @@ def train(config):
         for batch_idx, (images, targets) in enumerate(tqdm(train_loader, desc='Current training epoch\'s batches')):
             # Calculate depth maps if using depth
             if depth_model is not None:
+                # TODO it's possible that non-determinism could lead to issues, since depth maps could differ each epoch
+                # TODO worth experimenting with pre-calculated depth maps to assess this
                 pil_images = tensor_to_pil(images)
                 depth_masks = depth_model.calculate_depth_map(pil_images)
                 depth_masks_tensor = [torch.from_numpy(dm).unsqueeze(0) for dm in depth_masks]
@@ -664,7 +719,7 @@ def train(config):
 
             # Calculate loss for batch
             with autocast(enabled=config.SOLVER.AMP, device_type=device_type):
-                loss_dict = model(images, targets)
+                loss_dict = detection_model(images, targets)
                 loss = sum(loss_dict.values())
 
             # Backwards pass for batch
@@ -692,7 +747,7 @@ def train(config):
 
         # Calculate mean training loss and validation loss
         mean_train_loss = train_loss / num_batches
-        coco_eval = evaluate_loss(model, val_loader, device)
+        coco_eval = evaluate_loss(detection_model, val_loader, device, depth_model)
 
         # Print results for epoch
         if coco_eval is None:
@@ -716,7 +771,7 @@ def train(config):
               AP: {val_AP['AP']} | AP50: {val_AP['AP50']} | AP75: {val_AP['AP75']}")
         
         # Save epoch's model and validation results
-        save_checkpoint(config, model, epoch, coco_eval, mean_train_loss, optimizer, scheduler)
+        save_checkpoint(config, detection_model, epoch, coco_eval, mean_train_loss, optimizer, scheduler)
 
     # Save the training and validation loss graph and the learning rate graph
     save_train_val_plot(train_epochs, train_losses_per_batch, val_ap50, config.OUTPUT.DIR)
