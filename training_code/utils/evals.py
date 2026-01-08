@@ -10,6 +10,7 @@ from dataset_classes.VOC_dataset import voc_to_coco, VOC_CLASSES
 
 from training_code.utils.utility import tensor_to_pil
 
+
 def run_inference(model, dataloader, device, depth_model):
     """
     Gets model outputs for a dataset (should be val/test dataset)
@@ -23,7 +24,6 @@ def run_inference(model, dataloader, device, depth_model):
     Returns:
         The set of predictions and confidence scores for each image/predicted object
     """
-    model.to(device)
     model.eval()
     predictions = []
 

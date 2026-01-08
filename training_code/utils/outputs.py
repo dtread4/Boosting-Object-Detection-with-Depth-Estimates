@@ -8,6 +8,7 @@ import torch
 
 from training_code.utils.evals import get_best_epoch_val, coco_stats_to_dict
 
+
 def keep_only_best_and_last_saved_models(config, val_ap50):
     """
     Removes all model state dictionary files except the best epoch's and the last epoch's

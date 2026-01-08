@@ -55,7 +55,9 @@ def train(config):
     lr_history = []  # Learning rate used for each training epoch
 
     for epoch in tqdm(range(config.SOLVER.MAX_EPOCHS), desc='Training epochs'):
+        # Set model to train mode
         detection_model.train()
+        
         train_loss = 0
         num_batches = 0
 
