@@ -144,7 +144,7 @@ def train(config):
 
 def main(config):
     # Set reproducibility settings first
-    set_reproducability_settings(config)
+    set_reproducability_settings(config.UTILITY.SEED, config.UTILITY.DETERMINISTIC)
 
     # Run the training regime
     train(config)

@@ -31,26 +31,27 @@ def tensor_to_pil(tensor_images):
     return pil_images
     
 
-def set_reproducability_settings(config, verbose=True):
+def set_reproducability_settings(random_seed, use_determinism, verbose=True):
     """
     Sets backend random seeds and Torch determinism to ensure experiments are reproducible
 
     Args:
-        config: The configuration file used for setup
+        random_seed: The random seed to use for training
+        use_determinism: A boolean whether to use or not to use determinism
         verbose: Whether to print statement about reproducibility settings
     """
     # Set seeds
-    torch.manual_seed(config.UTILITY.SEED)
-    torch.cuda.manual_seed_all(config.UTILITY.SEED)
-    random.seed(config.UTILITY.SEED)
-    np.random.seed(config.UTILITY.SEED)
+    torch.manual_seed(random_seed)
+    torch.cuda.manual_seed_all(random_seed)
+    random.seed(random_seed)
+    np.random.seed(random_seed)
 
     # Set rough determinism (note it will not be truly deterministic for Faster R-CNN, but it's better than nothing)
     # TODO maybe look into this more?
-    torch.backends.cudnn.deterministic = config.UTILITY.DETERMINISTIC
+    torch.backends.cudnn.deterministic = use_determinism
 
     if verbose:
-        print(f"Using random seed: [{config.UTILITY.SEED}] and {"[NOT USING]" if not config.UTILITY.DETERMINISTIC else "[USING]"} determinism")
+        print(f"Using random seed: [{random_seed}] and {"[NOT USING]" if not use_determinism else "[USING]"} determinism")
 
 
 def set_device(device_type='auto', verbose=True):
