@@ -42,7 +42,7 @@ def train(config):
 
     # Build optimizer and scheduler
     use_depth = config.DEPTH_INFO.DEPTH_MODEL is not None
-    detection_model = build_faster_rcnn(config, add_depth_channel=use_depth).to(device)
+    detection_model = build_faster_rcnn(config, add_depth_channel=use_depth).to(device)  # TODO will need to incorporate model-specific mean/stdev to normalize properly
     optimizer, scheduler = build_optimizer_scheduler(config, detection_model)
 
     # Create a scaler
