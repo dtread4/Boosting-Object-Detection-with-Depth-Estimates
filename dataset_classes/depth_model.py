@@ -171,6 +171,11 @@ class DepthAnythingv3(_DepthModelBase):
         min_size = min(min(img.size) for img in images)
         images_resized = [img.resize((min_size, min_size), Image.Resampling.BILINEAR) for img in images]
 
+
+        # Using the min size and resizing both to this size because depth anything 3 
+        # will take a center crop if the images are different sizes. Using the square of the minimum sizes ensures
+        # no information is lost. Since the model is coarse anyway, downsampling inputs -> inference -> upsampling
+        # will give the best overall results
         with open(os.devnull, "w") as fnull:
             with redirect_stdout(fnull), redirect_stderr(fnull):
                 prediction = self.model.inference(
