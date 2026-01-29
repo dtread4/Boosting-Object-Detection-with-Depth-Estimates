@@ -72,7 +72,7 @@ def train(config):
             # Convert 8-bit images to tensors directly 
             # required before concatenating depth masks, 8-bit unit images need different transformation here 
             # than float32 0-1 depth masks
-            images = [T.ToTensor(images)]
+            images = images = [T.ToTensor()(img) for img in images]
 
             # TODO will want to break out pre-depth calculation and post-depth calculation transforms down the road
 
@@ -85,7 +85,7 @@ def train(config):
                 images = [torch.cat([images[i], depth_masks_tensor[i]], dim=0) for i in range(len(images))]
 
             # Apply additional transformations
-            images = train_transforms(images)
+            images = [train_transforms(img) for img in images]
 
             images = [img.to(device) for img in images]
             targets = [{k: v.to(device) for k, v in t.items()} for t in targets]

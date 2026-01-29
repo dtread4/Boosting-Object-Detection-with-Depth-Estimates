@@ -41,7 +41,7 @@ def run_inference(model, dataloader, device, depth_model, precomputed_depth):
             # Convert 8-bit images to tensors directly 
             # required before concatenating depth masks, 8-bit unit images need different transformation here 
             # than float32 0-1 depth masks
-            images = [T.ToTensor(images)]
+            images = [T.ToTensor()(img) for img in images]
 
             # Calculate depth maps if using depth
             if depth_model is not None:
@@ -52,7 +52,7 @@ def run_inference(model, dataloader, device, depth_model, precomputed_depth):
                 images = [torch.cat([images[i], depth_masks_tensor[i]], dim=0) for i in range(len(images))]
 
             # Apply additional transformations
-            images = test_transforms(images)
+            images = [test_transforms(img) for img in images]
 
             images = [img.to(device) for img in images]
             outputs = model(images)
