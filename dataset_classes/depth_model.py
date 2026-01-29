@@ -9,9 +9,10 @@ import cv2
 
 from depth_anything_3.api import DepthAnything3
 
-
 import os
 from contextlib import redirect_stdout, redirect_stderr
+
+from dataset_classes.utils import get_depth_outputs_path
 
 
 class DepthModel:
@@ -119,6 +120,72 @@ class _DepthModelBase(ABC):
         # Convert to float and normalize
         normalized_image = (depth_map - min_val) / (max_val - min_val)
         return normalized_image
+    
+
+@register_model('precomputed')
+class PrecomputedDepth(_DepthModelBase):
+    """
+    Model class to load precomputed depth masks from a specific depth model
+
+    Args:
+        _DepthModelBase: The base class this class is an implementation of
+    """
+    def __init__(self, device, model_path=None, model_name=None):
+        """
+        Operates as a pseudo-depth model.
+        """
+        super().__init__(device,model_path)
+        self.model_name = get_depth_outputs_path(model_path, model_name)
+
+    def _load_model(self, verbose=False):
+        """
+        In this override, does nothing but print out that precomputed depth maps are being used
+
+        Args:
+            verbose: Whether to print additional information. Defaults to False.
+
+        Returns:
+            None
+        """
+        print(f"Using precomputed depth maps for the {self.model_name} depth model\n")
+        return None
+    
+    def calculate_depth_map(self, image_paths, verbose=False):
+        """
+        Calculates the depth map for a specified input images
+        PAY ATTENTION THAT THIS CLASS EXPECTS IMAGE PATHS AS INPUT IMAGES, NOT THE IMAGES THEMSELVES
+
+        Args:
+            image_paths: The image PATHS to LOAD depth maps for. This differs from other classes
+            verbose: Whether to print statements when running inference on model. Defaults to False.
+
+        Returns:
+            A 2D numpy array [h, w] of the estimated depths
+        """
+        # Extract the directory from the image paths (should be the same)
+        img_dir = os.path.dirname(image_paths[0])
+        depth_dir = get_depth_outputs_path(img_dir, self.model_name)
+
+        # Load the files
+        depth_masks = [self._load_precomputed_numpy_depth_mask(pth, depth_dir) for pth in image_paths]
+        return depth_masks
+    
+    def _load_precomputed_numpy_depth_mask(self, img_path, depth_dir):
+        """
+        Takes the image path and loads the associated NumPy depth mask from the specified directory
+
+        Args:
+            img_path: The path to the original image
+            depth_dir: The directory to load depth masks from
+
+        Returns:
+            The NumPy loaded depth mask
+        """
+        file_name_img = os.path.basename(img_path)
+        file_name_numpy = os.path.join(os.path.splitext(file_name_img)[0], '.npy')
+        full_path = os.path.join(depth_dir, file_name_numpy)
+        return np.load(full_path)
+        
 
 
 @register_model("depth_anything_v3")
@@ -151,7 +218,7 @@ class DepthAnythingv3(_DepthModelBase):
                 model = DepthAnything3.from_pretrained(f"depth-anything/{self.da3_model_name}").to(self.device)
         return model
     
-    def calculate_depth_map(self, images):
+    def calculate_depth_map(self, images, verbose=False):
         """
         Calculates the depth map for a single input image and return it in the form [h, w]
 

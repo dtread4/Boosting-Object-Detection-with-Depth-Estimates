@@ -25,7 +25,7 @@ class VOCDataset(Dataset):
     """
     Dataset class for managing the combined VOC 2007/2012 datasets
     """
-    def __init__(self, root, years, split, transforms=None):
+    def __init__(self, root, years, split):
         """
         Dataset constructor
 
@@ -33,14 +33,13 @@ class VOCDataset(Dataset):
             root: The root directory containing 'VOCdevkit'
             year: list of years, e.g., [2007], [2012], [2007, 2012]
             split: Which split of data (train/val/trainval/test) to manage
-            transforms: Transforms to apply to data. Defaults to None.
         """
         self.datasets = []
 
         # Create datasets for each year specified
         for year in years:
             self.datasets.append(
-                VOCSingleYearDataset(root, year, split, transforms)
+                VOCSingleYearDataset(root, year, split)
             )
 
         # Concatenate all years into a single dataset
@@ -75,7 +74,7 @@ class VOCSingleYearDataset(Dataset):
     """
     Dataset class for managing either the VOC 2007/2012 data and use in PyTorch Dataloader objects
     """
-    def __init__(self, root, year, split, transforms=None):
+    def __init__(self, root, year, split):
         """
         Dataset constructor
 
@@ -84,13 +83,11 @@ class VOCSingleYearDataset(Dataset):
             year: Which year to manage data for
             split: Which split of data (train/val/trainval/test) to manage
                     Note that split for 2012 is always trainval, and 2012 should only be used for training
-            transforms: Transforms to apply to data. Defaults to None.
         """
         # Set class attributes
         self.root = root
         self.year = year
         self.split = split
-        self.transforms = transforms
 
         # Set images that the dataset will manage
         self.image_ids = load_voc_ids(self.root, self.year, 'trainval' if self.year == 2012 else self.split)
@@ -121,13 +118,11 @@ class VOCSingleYearDataset(Dataset):
         """
         img_id = self.image_ids[idx]
 
-        # Load the image and apply any transformations
+        # Load the image
         img_path = os.path.join(
             self.base_path, "JPEGImages", f"{img_id}.jpg"
         )
         img = Image.open(img_path).convert("RGB")
-        if self.transforms:
-            img = self.transforms(img)  # TODO ultimately will want to separate pre-depth and post-depth estimate transforms
 
         # Load the annotations
         ann_path = os.path.join(
@@ -160,7 +155,7 @@ class VOCSingleYearDataset(Dataset):
             "iscrowd": torch.zeros((len(boxes),), dtype=torch.int64)
         }
 
-        return img, target
+        return img, target, img_path
 
 
 def load_voc_ids(root, year, split):

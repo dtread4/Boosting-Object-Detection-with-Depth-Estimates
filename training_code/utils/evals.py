@@ -1,17 +1,21 @@
 # David Treadwell
 
 from tqdm import tqdm
+
 import torch
+import torchvision.transforms as T
+
 import numpy as np
 
 from pycocotools.cocoeval import COCOeval
 
 from dataset_classes.VOC_dataset import voc_to_coco, VOC_CLASSES
 
-from training_code.utils.utility import tensor_to_pil
+from training_code.utils.transformations import get_transforms
+from training_code.utils.utility import get_depth_masks
 
 
-def run_inference(model, dataloader, device, depth_model):
+def run_inference(model, dataloader, device, depth_model, precomputed_depth):
     """
     Gets model outputs for a dataset (should be val/test dataset)
 
@@ -19,25 +23,36 @@ def run_inference(model, dataloader, device, depth_model):
         model: The model to evaluate with
         loader: The dataloader managing the dataset to evaluate with
         device: The device being used for evaluation
-        device: The depth model to estimate depth maps with (if one is being used, else None)
+        depth_model: The depth model to estimate depth maps with (if one is being used, else None)
+        precomputed_depth: Whether precomputed depth is being used or not
 
     Returns:
         The set of predictions and confidence scores for each image/predicted object
     """
     model.eval()
     predictions = []
+    test_transforms = get_transforms(train=False)
 
     image_id = 0
 
     # Evaluate each image
     with torch.no_grad():
-        for images, _ in tqdm(dataloader, desc='Current epoch\'s inference batches'):
+        for images, _, image_paths in tqdm(dataloader, desc='Current epoch\'s inference batches'):
+            # Convert 8-bit images to tensors directly 
+            # required before concatenating depth masks, 8-bit unit images need different transformation here 
+            # than float32 0-1 depth masks
+            images = [T.ToTensor(images)]
+
             # Calculate depth maps if using depth
             if depth_model is not None:
-                pil_images = tensor_to_pil(images)
-                depth_masks = depth_model.calculate_depth_map(pil_images)
+                # Pass actual images if using runtime depth maps, otherwise pass image paths
+                # TODO setup this way to minimize loading from disk
+                depth_masks = get_depth_masks(precomputed_depth, depth_model, images, image_paths)
                 depth_masks_tensor = [torch.from_numpy(dm).unsqueeze(0) for dm in depth_masks]
                 images = [torch.cat([images[i], depth_masks_tensor[i]], dim=0) for i in range(len(images))]
+
+            # Apply additional transformations
+            images = test_transforms(images)
 
             images = [img.to(device) for img in images]
             outputs = model(images)
@@ -62,7 +77,7 @@ def run_inference(model, dataloader, device, depth_model):
     return predictions
 
 
-def evaluate_loss(model, loader, device, depth_model):
+def evaluate_loss(model, loader, device, depth_model, precomputed_depth):
     """
     Evaluates a model's mAP on a dataset (should be the val/test set)
 
@@ -71,13 +86,14 @@ def evaluate_loss(model, loader, device, depth_model):
         loader: The dataloader managing the dataset to evaluate with
         device: The device being used for evaluation
         device: The depth model to estimate depth maps with (if one is being used, else None)
+        precomputed_depth: Whether precomputed depth is being used or not
 
     Returns:
         the coco evaluation results
     """
     # Get predictions from model
     coco_gt = voc_to_coco(loader.dataset)
-    predictions = run_inference(model, loader, device, depth_model)
+    predictions = run_inference(model, loader, device, depth_model, precomputed_depth)
 
     # Make sure any predictions were generated - if not, return None to designate this
     if len(predictions) == 0:

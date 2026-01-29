@@ -5,6 +5,7 @@ from tqdm import tqdm
 from omegaconf import OmegaConf
 
 import torch
+import torchvision.transforms as T
 
 from torch.amp import autocast, GradScaler
 
@@ -17,7 +18,8 @@ from training_code.utils.evals import evaluate_loss
 from training_code.utils.graphing import save_train_val_plot, save_lr_scheduler_plot
 from training_code.utils.optimizer import build_optimizer_scheduler, get_current_learning_rate
 from training_code.utils.outputs import save_checkpoint, keep_only_best_and_last_saved_models, organize_val_results_files
-from training_code.utils.utility import set_device, set_reproducability_settings, tensor_to_pil
+from training_code.utils.transformations import get_transforms
+from training_code.utils.utility import set_device, set_reproducability_settings, get_depth_masks
 
 
 def train(config):
@@ -33,12 +35,16 @@ def train(config):
     # Load the depth model (if any; will be None if not)
     depth_model = DepthModel.initialize_depth_model(
         model_name=config.DEPTH_INFO.DEPTH_MODEL,
+        precomputed_depth=config.DEPTH_INFO.PRECOMPUTED_DEPTH,
         device=device
     )
 
     # Build dataloaders
     train_loader = build_dataloader(config, "TRAIN")  # TODO these should be specified, either TRAIN/VAL or TRAINVAL/TEST
     val_loader = build_dataloader(config, "VAL")
+
+    # Set transformations
+    train_transforms = get_transforms(train=True)
 
     # Build optimizer and scheduler
     use_depth = config.DEPTH_INFO.DEPTH_MODEL is not None
@@ -62,15 +68,24 @@ def train(config):
         num_batches = 0
 
         # Loop over all batches each epoch
-        for batch_idx, (images, targets) in enumerate(tqdm(train_loader, desc='Current training epoch\'s batches')):
+        for batch_idx, (images, targets, image_paths) in enumerate(tqdm(train_loader, desc='Current training epoch\'s batches')):
+            # Convert 8-bit images to tensors directly 
+            # required before concatenating depth masks, 8-bit unit images need different transformation here 
+            # than float32 0-1 depth masks
+            images = [T.ToTensor(images)]
+
+            # TODO will want to break out pre-depth calculation and post-depth calculation transforms down the road
+
             # Calculate depth maps if using depth
             if depth_model is not None:
-                # TODO it's possible that non-determinism could lead to issues, since depth maps could differ each epoch
-                # TODO worth experimenting with pre-calculated depth maps to assess this
-                pil_images = tensor_to_pil(images)
-                depth_masks = depth_model.calculate_depth_map(pil_images)
+                # Pass actual images if using runtime depth maps, otherwise pass image paths
+                # TODO setup this way to minimize loading from disk
+                depth_masks = get_depth_masks(config.DEPTH_INFO.PRECOMPUTED_DEPTH, depth_model, images, image_paths)
                 depth_masks_tensor = [torch.from_numpy(dm).unsqueeze(0) for dm in depth_masks]
                 images = [torch.cat([images[i], depth_masks_tensor[i]], dim=0) for i in range(len(images))]
+
+            # Apply additional transformations
+            images = train_transforms(images)
 
             images = [img.to(device) for img in images]
             targets = [{k: v.to(device) for k, v in t.items()} for t in targets]

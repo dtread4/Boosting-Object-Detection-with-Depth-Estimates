@@ -71,3 +71,23 @@ def set_device(device_type='auto', verbose=True):
     if verbose:
         print(f"Training on device [{device_type}]\n")
     return device_type, torch.device(device_type)
+
+
+def get_depth_masks(precomputed_depth, depth_model, images, image_paths):
+    """
+    Returns depth masks, and determines what to pass as inputs to the depth model
+
+    Args:
+        precomputed_depth: Boolean flag to determine if images or image paths should be used
+        depth_model: The depth model to calculate depth masks from
+        images: The images to calculate depth masks from
+        image_paths: The paths to these images
+
+    Returns:
+        The loaded depth masks as a list of NumPy arrays
+    """
+    if not precomputed_depth:
+        depth_masks = depth_model.calculate_depth_map(tensor_to_pil(images))
+    else:
+        depth_masks = depth_model.calculate_depth_map(image_paths)
+    return depth_masks

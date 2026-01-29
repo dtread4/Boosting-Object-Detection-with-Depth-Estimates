@@ -4,8 +4,6 @@ from torch.utils.data import DataLoader
 
 from dataset_classes.VOC_dataset import VOCDataset
 
-from dataset_classes.pre_depth_transforms import get_transforms
-
 
 def collate_fn(batch):
     """
@@ -35,8 +33,7 @@ def build_dataloader(config, split):
     dataset = VOCDataset(
         root=config.DATASETS.ROOT,
         years=config.DATASETS[split].YEARS,
-        split=split,
-        transforms=get_transforms(train=(split.upper() == "TRAIN"))
+        split=split
     )
     dataloader = DataLoader(
         dataset=dataset,
