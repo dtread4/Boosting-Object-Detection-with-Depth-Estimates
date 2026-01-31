@@ -204,7 +204,7 @@ def voc_to_coco(dataset):
 
     ann_id = 1
     for img_id in range(len(dataset)):
-        _, target = dataset[img_id]
+        _, target, _ = dataset[img_id]
 
         coco_gt.dataset["images"].append({
             "id": img_id

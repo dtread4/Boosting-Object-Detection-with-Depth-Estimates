@@ -48,7 +48,7 @@ def save_train_val_plot(train_epochs, train_losses_per_batch, val_ap50, output_d
 
     # Enforce range of 0-1 with ticks every 0.1 (-0.05 to 1.05 for padding)
     ax2.set_ylim(-0.05, 1.05)
-    ax2.set_y_ticks(np.arange(0.0, 1.1, 0.1))
+    ax2.set_yticks(np.arange(0.0, 1.1, 0.1))
 
     # Set x-axis limits and integer ticks
     max_epoch = len(val_ap50)

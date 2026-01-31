@@ -122,7 +122,7 @@ def train(config):
 
         # Calculate mean training loss and validation loss
         mean_train_loss = train_loss / num_batches
-        coco_eval = evaluate_loss(detection_model, val_loader, device, depth_model)
+        coco_eval = evaluate_loss(detection_model, val_loader, device, depth_model, config.DEPTH_INFO.PRECOMPUTED_DEPTH)
 
         # Print results for epoch
         if coco_eval is None:
