@@ -50,8 +50,8 @@ def build_faster_rcnn(config, add_depth_channel):
             num_classes=config.MODEL.NUM_CLASSES,
             min_size=config.MODEL.MIN_SIZE,
             max_size=config.MODEL.MAX_SIZE,
-            image_mean=[0.485, 0.456, 0.406, 0.5],  # TODO calculate on training set and update
-            image_std=[0.229, 0.224, 0.225, 0.25],  # TODO calculate on training set and update
+            image_mean=[0.485, 0.456, 0.406, 0.395],
+            image_std=[0.229, 0.224, 0.225, 0.287],
         )
 
         return faster_rcnn_model
