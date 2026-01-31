@@ -37,7 +37,7 @@ def build_dataloader(config, split):
     )
     dataloader = DataLoader(
         dataset=dataset,
-        batch_size=config.SOLVER.BATCH_SIZE if split == "TRAIN" else 1,
+        batch_size=config.SOLVER.BATCH_SIZE if split in ["TRAIN", "TRAINVAL"] else 1,
         shuffle=(split.upper() == "TRAIN"),
         num_workers=config.DATALOADER.NUM_WORKERS,
         collate_fn=collate_fn
