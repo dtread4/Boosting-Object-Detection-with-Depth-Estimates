@@ -50,7 +50,7 @@ def build_faster_rcnn(config, add_depth_channel):
             num_classes=config.MODEL.NUM_CLASSES,
             min_size=config.MODEL.MIN_SIZE,
             max_size=config.MODEL.MAX_SIZE,
-            image_mean=[0.485, 0.456, 0.406, 0.395],  # TODO setup to update the depth mean per model
+            image_mean=[0.485, 0.456, 0.406, 0.396],  # TODO setup to update the depth mean per model
             image_std=[0.229, 0.224, 0.225, 0.287],  # TODO setup to update the depth std per model
         )
 
